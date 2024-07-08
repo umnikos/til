@@ -1,4 +1,4 @@
-local version = "0.2"
+local version = "0.3"
 
 local function listLength(list)
   local len = 0
@@ -8,9 +8,34 @@ local function listLength(list)
   return len
 end
 
-local function spaceFor(inv,name,nbt,stacksize)
+local function splitIdent(ident)
+  local i = string.find(ident,";")
+  local nbt = string.sub(ident,i+1)
+  local name = string.sub(ident,0,i-1)
+  return name,nbt
+end
+
+-- returns a list of {name,nbt,count}
+local function list(inv)
+  local l = {}
+  for k,v in pairs(inv.items) do
+    local name,nbt = splitIdent(k)
+    local count = v.count
+    table.insert(l,{name=name,nbt=nbt,count=count})
+  end
+  return l
+end
+
+local function informStackSize(inv,name,stacksize)
+  inv.stack_sizes[name] = stacksize
+end
+
+local function spaceFor(inv,name,nbt)
   -- partial slots
-  stacksize = stacksize or 64
+  local stacksize = inv.stack_sizes[name]
+  if not stacksize then
+    return nil
+  end
   local ident = name..";"..(nbt or "")
   local partials = inv.items[ident] or {slots={},slots_nils={}, count = 0}
   local partial_slot_space = listLength(partials.slots)*stacksize - partials.count
@@ -21,11 +46,19 @@ end
 
 local function amountOf(inv,name,nbt)
   local ident = name..";"..(nbt or "")
+  if not inv.items[ident] then
+    return 0
+  end
   return inv.items[ident].count
 end
 
-local function transfer(inv1,inv2,name,nbt,amount,stacksize)
-  stacksize = stacksize or 64
+local function transfer(inv1,inv2,name,nbt,amount)
+  local stacksize = inv1.stack_sizes[name]
+  if not stacksize then
+    error("Unknown stack size?!?")
+  end
+  inv2.stack_sizes[name] = stacksize
+
   local ident = name..";"..(nbt or "")
   inv1.items[ident] = inv1.items[ident] or {count=0,slots={},slots_nils={}}
   inv2.items[ident] = inv2.items[ident] or {count=0,slots={},slots_nils={}}
@@ -99,6 +132,8 @@ local function new(chests)
   -- list of empty slots
   inv.empty_slots = {}
   inv.empty_slots_nils = {}
+  -- cache of stack sizes, name -> number
+  inv.stack_sizes = {}
 
   for _,cname in pairs(chests) do
     local c = peripheral.wrap(cname)
@@ -118,14 +153,22 @@ local function new(chests)
         inv.items[ident] = inv.items[ident] or {count=0,slots={},slots_nils={}}
         inv.items[ident].count = inv.items[ident].count + count
         table.insert(inv.items[ident].slots,{count=count,chest=cname,slot=i})
+
+        -- inform stack sizes cache if it doesn't know this item
+        -- this is slow but it's only done once per item type
+        if not inv.stack_sizes[name] then
+          inv.stack_sizes[name] = c.getItemDetail(i).maxCount
+        end
       end
     end
   end
 
   -- add methods to the inv
-  inv.spaceFor = function(name,nbt,stacksize) return spaceFor(inv,name,nbt,stacksize) end
+  inv.informStackSize = function(name,stacksize) return informStackSize(inv,name,stacksize) end
+  inv.spaceFor = function(name,nbt) return spaceFor(inv,name,nbt) end
   inv.amountOf = function(name,nbt) return amountOf(inv,name,nbt) end
-  inv.transfer = function(inv2,name,nbt,amount,stacksize) return transfer(inv,inv2,name,nbt,amount,stacksize) end
+  inv.transfer = function(inv2,name,nbt,amount) return transfer(inv,inv2,name,nbt,amount) end
+  inv.list = function() return list(inv) end
   return inv
 end
 
