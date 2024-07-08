@@ -1,6 +1,6 @@
 -- Copyright umnikos (Alex Stefanov) 2024
 -- Licensed under MIT license
-local version = "0.5"
+local version = "0.4"
 
 local function listLength(list)
   local len = 0
@@ -29,7 +29,7 @@ local function list(inv)
 end
 
 -- inform the storage of the stack size of an item it has not seen yet
--- DO NOT LIE! this info spreads everywhere
+-- DO NOT LIE! (even if it's convenient)
 local function informStackSize(inv,name,stacksize)
   inv.stack_sizes[name] = stacksize
 end
@@ -137,10 +137,7 @@ end
 
 
 -- create an inv object out of a list of chests
--- previous_storage and chest_lists both speed up the creation of the object 
--- by culling the number of required io operations
--- slot_number allows creation of a storage with a single slot
-local function new(chests, previous_storage, chest_lists, slot_number)
+local function new(chests)
   local inv = {}
   -- list of chest names
   inv.chests = chests
@@ -151,10 +148,6 @@ local function new(chests, previous_storage, chest_lists, slot_number)
   inv.empty_slots_nils = {}
   -- cache of stack sizes, name -> number
   inv.stack_sizes = {}
-  if previous_storage then
-    -- this doesn't do a deep copy, but that's a feature
-    inv.stack_sizes = previous_storage.stack_sizes
-  end
 
   for _,cname in pairs(chests) do
     local c = peripheral.wrap(cname)
@@ -163,19 +156,9 @@ local function new(chests, previous_storage, chest_lists, slot_number)
       c.getItemDetail = c.getItemMeta
     end
 
-    local l
-    if chest_lists[cname] then
-      l = chest_lists[cname]
-    else
-      l = c.list()
-    end
-    local size
-    if slot_number then
-      size = slot_number
-    else
-      size = c.size()
-    end
-    for i = (slot_number or 1),size do
+    local l = c.list()
+    local size = c.size()
+    for i = 1,size do
       local item = l[i]
       if not item then
         -- empty slot
