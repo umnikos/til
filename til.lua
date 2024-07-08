@@ -1,3 +1,5 @@
+-- Copyright umnikos (Alex Stefanov) 2024
+-- Licensed under MIT license
 local version = "0.3"
 
 local function listLength(list)
@@ -26,10 +28,13 @@ local function list(inv)
   return l
 end
 
+-- inform the storage of the stack size of an item it has not seen yet
+-- DO NOT LIE! (even if it's convenient)
 local function informStackSize(inv,name,stacksize)
   inv.stack_sizes[name] = stacksize
 end
 
+-- additional amounts of that item the storage is able to store
 local function spaceFor(inv,name,nbt)
   -- partial slots
   local stacksize = inv.stack_sizes[name]
@@ -44,6 +49,7 @@ local function spaceFor(inv,name,nbt)
   return partial_slot_space + empty_slot_space
 end
 
+-- amount of a particular item in storage
 local function amountOf(inv,name,nbt)
   local ident = name..";"..(nbt or "")
   if not inv.items[ident] then
@@ -52,6 +58,7 @@ local function amountOf(inv,name,nbt)
   return inv.items[ident].count
 end
 
+-- transfer from one storage to another
 local function transfer(inv1,inv2,name,nbt,amount)
   local stacksize = inv1.stack_sizes[name]
   if not stacksize then
