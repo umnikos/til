@@ -1,6 +1,6 @@
 -- Copyright umnikos (Alex Stefanov) 2024
 -- Licensed under MIT license
-local version = "0.3"
+local version = "0.3.1"
 
 local function listLength(list)
   local len = 0
@@ -144,6 +144,11 @@ local function new(chests)
 
   for _,cname in pairs(chests) do
     local c = peripheral.wrap(cname)
+    -- 1.12 cc + plethora calls getItemDetail "getItemMeta"
+    if not c.getItemDetail then
+      c.getItemDetail = c.getItemMeta
+    end
+
     local l = c.list()
     local size = c.size()
     for i = 1,size do
