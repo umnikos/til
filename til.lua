@@ -1,4 +1,4 @@
-local version = "0.1"
+local version = "0.2"
 
 local function listLength(list)
   local len = 0
@@ -12,7 +12,7 @@ local function spaceFor(inv,name,nbt,stacksize)
   -- partial slots
   stacksize = stacksize or 64
   local ident = name..";"..(nbt or "")
-  local partials = inv.items[ident] or {slots={}, count = 0}
+  local partials = inv.items[ident] or {slots={},slots_nils={}, count = 0}
   local partial_slot_space = listLength(partials.slots)*stacksize - partials.count
   local empty_slot_space = listLength(inv.empty_slots)*stacksize
 
@@ -27,8 +27,8 @@ end
 local function transfer(inv1,inv2,name,nbt,amount,stacksize)
   stacksize = stacksize or 64
   local ident = name..";"..(nbt or "")
-  inv1.items[ident] = inv1.items[ident] or {count=0,slots={}}
-  inv2.items[ident] = inv2.items[ident] or {count=0,slots={}}
+  inv1.items[ident] = inv1.items[ident] or {count=0,slots={},slots_nils={}}
+  inv2.items[ident] = inv2.items[ident] or {count=0,slots={},slots_nils={}}
   local sources = inv1.items[ident].slots
   local sl = #sources -- intentionally take incorrect length to take into account nils
   local dests_partial = inv2.items[ident].slots
@@ -58,15 +58,29 @@ local function transfer(inv1,inv2,name,nbt,amount,stacksize)
       inv1.items[ident].count = inv1.items[ident].count - to_transfer
       if s.count == 0 then
         -- it's an empty slot now
-        table.insert(inv1.empty_slots,s)
+        if #(inv1.empty_slots_nils) == 0 then
+          table.insert(inv1.empty_slots,s)
+        else
+          inv1.empty_slots[inv1.empty_slots_nils[#inv1.empty_slots_nils]] = s
+          inv1.empty_slots_nils[#inv1.empty_slots_nils] = nil
+        end
+
         inv1.items[ident].slots[si] = nil
+        table.insert(inv1.items[ident].slots_nils, si)
       end
 
       d.count = d.count + to_transfer
       if di > dlp then
         -- it's not an empty slot now
-        table.insert(inv2.items[ident].slots,d)
+        if #(inv2.items[ident].slots_nils) == 0 then
+          table.insert(inv2.items[ident].slots,d)
+        else
+          inv2.items[ident].slots[inv2.items[ident].slots_nils[#inv2.items[ident].slots_nils]] = d
+          inv2.items[ident].slots_nils[#inv2.items[ident].slots_nils] = nil
+        end
+
         inv2.empty_slots[di-dlp] = nil
+        table.insert(inv2.empty_slots_nils, di-dlp)
       end
       inv2.items[ident].count = inv2.items[ident].count + to_transfer
     end
@@ -84,6 +98,7 @@ local function new(chests)
   inv.items = {}
   -- list of empty slots
   inv.empty_slots = {}
+  inv.empty_slots_nils = {}
 
   for _,cname in pairs(chests) do
     local c = peripheral.wrap(cname)
@@ -100,7 +115,7 @@ local function new(chests)
         local name = item.name
         local count = item.count
         local ident = name..";"..nbt -- identifier
-        inv.items[ident] = inv.items[ident] or {count=0,slots={}}
+        inv.items[ident] = inv.items[ident] or {count=0,slots={},slots_nils={}}
         inv.items[ident].count = inv.items[ident].count + count
         table.insert(inv.items[ident].slots,{count=count,chest=cname,slot=i})
       end
