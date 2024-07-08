@@ -1,6 +1,6 @@
 -- Copyright umnikos (Alex Stefanov) 2024
 -- Licensed under MIT license
-local version = "0.3.1"
+local version = "0.4"
 
 local function listLength(list)
   local len = 0
@@ -90,12 +90,15 @@ local function transfer(inv1,inv2,name,nbt,amount)
       di = di + 1
     else
       local to_transfer = math.min(amount, s.count, stacksize-d.count)
-      peripheral.wrap(s.chest).pushItems(d.chest,s.slot,to_transfer,d.slot)
-      -- we can just assume this is what happened
-      transferred = transferred + to_transfer
-      amount = amount - to_transfer
-      s.count = s.count - to_transfer
-      inv1.items[ident].count = inv1.items[ident].count - to_transfer
+      local real_transfer = peripheral.wrap(s.chest).pushItems(d.chest,s.slot,to_transfer,d.slot)
+      -- we will work with the real transfer amount
+      -- if it doesn't match the planned amount we'll error *after* updating everything
+      -- because if only one of the storages is inconsistent we want to maintain consistency on the other one
+
+      transferred = transferred + real_transfer
+      amount = amount - real_transfer
+      s.count = s.count - real_transfer
+      inv1.items[ident].count = inv1.items[ident].count - real_transfer
       if s.count == 0 then
         -- it's an empty slot now
         if #(inv1.empty_slots_nils) == 0 then
@@ -109,8 +112,8 @@ local function transfer(inv1,inv2,name,nbt,amount)
         table.insert(inv1.items[ident].slots_nils, si)
       end
 
-      d.count = d.count + to_transfer
-      if di > dlp then
+      d.count = d.count + real_transfer
+      if di > dlp and d.count > 0 then
         -- it's not an empty slot now
         if #(inv2.items[ident].slots_nils) == 0 then
           table.insert(inv2.items[ident].slots,d)
@@ -122,7 +125,11 @@ local function transfer(inv1,inv2,name,nbt,amount)
         inv2.empty_slots[di-dlp] = nil
         table.insert(inv2.empty_slots_nils, di-dlp)
       end
-      inv2.items[ident].count = inv2.items[ident].count + to_transfer
+      inv2.items[ident].count = inv2.items[ident].count + real_transfer
+
+      if to_transfer ~= real_transfer then
+        error("Inconsistency detected during ail transfer")
+      end
     end
   end
   return transferred
