@@ -1,6 +1,6 @@
 -- Copyright umnikos (Alex Stefanov) 2024
 -- Licensed under MIT license
-local version = "0.6"
+local version = "0.7"
 
 local function listLength(list)
   local len = 0
@@ -91,9 +91,9 @@ local function transfer(inv1,inv2,name,nbt,amount)
     end
     if not d then
       if di <= dlp then 
-        d = dests_partial[di] 
-      else 
-        d = dests_empty[di]
+        d = dests_partial[di]
+      else
+        d = dests_empty[di-dlp]
       end
     end
 
@@ -176,14 +176,15 @@ local function pullItems(inv,chest,from_slot,amount)
   local dests_empty = inv.empty_slots
   local dle = #dests_empty
   local di = 1
+
   local transferred = 0
   local d
   while amount > 0 and si <= sl and di <= (dlp+dle) do
     if not d then
       if di <= dlp then 
-        d = dests_partial[di] 
-      else 
-        d = dests_empty[di]
+        d = dests_partial[di]
+      else
+        d = dests_empty[di-dlp]
       end
     end
 
