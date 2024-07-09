@@ -1,6 +1,6 @@
 -- Copyright umnikos (Alex Stefanov) 2024
 -- Licensed under MIT license
-local version = "0.4"
+local version = "0.5"
 
 local function listLength(list)
   local len = 0
@@ -71,6 +71,10 @@ local function transfer(inv1,inv2,name,nbt,amount)
   inv2.items[ident] = inv2.items[ident] or {count=0,slots={},slots_nils={}}
   local sources = inv1.items[ident].slots
   local sl = #sources -- intentionally take incorrect length to take into account nils
+  if not inv2.items[ident] then
+    -- new kind of item to accept
+    inv2.items[ident] = {count=0, slots={}, slots_nils={}}
+  end
   local dests_partial = inv2.items[ident].slots
   local dlp = #dests_partial
   local dests_empty = inv2.empty_slots
@@ -135,6 +139,150 @@ local function transfer(inv1,inv2,name,nbt,amount)
   return transferred
 end
 
+-- transfer from a chest
+-- from_slot is a required argument (might change in the future)
+-- to_slot does not exist as an argument, if passed it'll simply be ignored
+local function pullItems(inv,chest,from_slot,amount)
+  if type(from_slot) ~= "number" then
+    error("from_slot is a required argument")
+  end
+  local sources = peripheral.wrap(chest).list()
+  local si = from_slot
+  local sl = from_slot
+  local s = sources[si]
+  if not s or not s.name or s.count <= 0 then
+    return 0
+  end
+  local ident = s.name..";"..(s.nbt or "")
+  local stacksize = inv.stack_sizes[s.name]
+
+  if not inv.items[ident] then
+    -- new kind of item to accept
+    inv.items[ident] = {count=0, slots={}, slots_nils={}}
+  end
+  local dests_partial = inv.items[ident].slots
+  local dlp = #dests_partial
+  local dests_empty = inv.empty_slots
+  local dle = #dests_empty
+  local di = 1
+  local transferred = 0
+  while amount > 0 and si <= sl and di <= (dlp+dle) do
+    local d
+    if di <= dlp then d = dests_partial[di] else d = dests_empty[di] end
+
+    if s.count <= 0 then
+      si = si + 1
+    elseif not d or d.count >= stacksize then
+      di = di + 1
+    else
+      local to_transfer = math.min(amount, s.count, stacksize-d.count)
+      local real_transfer = peripheral.wrap(d.chest).pullItems(chest,si,to_transfer,d.slot)
+
+      transferred = transferred + real_transfer
+      amount = amount - real_transfer
+      s.count = s.count - real_transfer
+
+      d.count = d.count + real_transfer
+      if di > dlp and d.count > 0 then
+        -- it's not an empty slot now
+        if #(inv.items[ident].slots_nils) == 0 then
+          table.insert(inv.items[ident].slots,d)
+        else
+          inv.items[ident].slots[inv.items[ident].slots_nils[#inv.items[ident].slots_nils]] = d
+          inv.items[ident].slots_nils[#inv.items[ident].slots_nils] = nil
+        end
+
+        inv.empty_slots[di-dlp] = nil
+        table.insert(inv.empty_slots_nils, di-dlp)
+      end
+      inv.items[ident].count = inv.items[ident].count + real_transfer
+
+      if to_transfer ~= real_transfer then
+        error("Inconsistency detected during ail transfer")
+      end
+    end
+  end
+  return transferred
+end
+
+-- transfer to a chest
+-- from_slot is a required argument, and determines the type of item transferred
+-- if from_slot is a number it will transfer the type of item at that entry in inv.list()
+-- if from_slot is a "name;nbt" string then it'll transfer that type of item
+local function pushItems(inv,chest,from_slot,amount,to_slot)
+  local name,nbt
+  if type(from_slot) == "number" then
+    local l = list(inv)
+    if l[from_slot] then
+      name = l[from_slot].name
+      nbt = l[from_slot].nbt
+    end
+  elseif type(from_slot) == "string" then
+    name,nbt = splitIdent(from_slot)
+  end
+  if not name then
+    error("item name is nil")
+  end
+  if not nbt then nbt = "" end
+  local stacksize = inv.stack_sizes[name]
+  if not stacksize then
+    error("Unknown stack size?!?")
+  end
+
+  local ident = name..";"..nbt
+  local sources = inv.items[ident].slots
+  local sl = #sources
+  local si = 1
+  local dests = peripheral.wrap(chest).list()
+  local dl,di
+  if to_slot then
+    dl = to_slot
+    di = to_slot
+  else
+    dl = #dests
+    di = 1
+  end
+  local transferred = 0
+  while amount > 0 and si <= sl and di <= dl do
+    local s = sources[si]
+    local d = dests[di]
+    if not d then
+      d = {count=0,name=name,nbt=nbt}
+    end
+    if not s or s.count <= 0 then
+      si = si + 1
+    elseif d.name ~= name or (d.nbt or "") ~= nbt or d.count >= stacksize then
+      di = di + 1
+    else
+      local to_transfer = math.min(amount, s.count, stacksize-d.count)
+      local real_transfer = peripheral.wrap(s.chest).pushItems(chest,s.slot,to_transfer,di)
+
+      transferred = transferred + real_transfer
+      amount = amount - real_transfer
+      s.count = s.count - real_transfer
+      inv.items[ident].count = inv.items[ident].count - real_transfer
+      if s.count == 0 then
+        -- it's an empty slot now
+        if #(inv.empty_slots_nils) == 0 then
+          table.insert(inv.empty_slots,s)
+        else
+          inv.empty_slots[inv.empty_slots_nils[#inv.empty_slots_nils]] = s
+          inv.empty_slots_nils[#inv.empty_slots_nils] = nil
+        end
+
+        inv.items[ident].slots[si] = nil
+        table.insert(inv.items[ident].slots_nils, si)
+      end
+
+      d.count = d.count + real_transfer
+      if to_transfer ~= real_transfer then
+        error("Inconsistency detected during ail transfer")
+      end
+    end
+  end
+  return transferred
+end
+
 
 -- create an inv object out of a list of chests
 local function new(chests)
@@ -187,6 +335,8 @@ local function new(chests)
   inv.spaceFor = function(name,nbt) return spaceFor(inv,name,nbt) end
   inv.amountOf = function(name,nbt) return amountOf(inv,name,nbt) end
   inv.transfer = function(inv2,name,nbt,amount) return transfer(inv,inv2,name,nbt,amount) end
+  inv.pushItems = function(chest,from_slot,amount,to_slot) return pushItems(inv,chest,from_slot,amount,to_slot) end
+  inv.pullItems = function(chest,from_slot,amount) return pullItems(inv,chest,from_slot,amount) end
   inv.list = function() return list(inv) end
   return inv
 end
