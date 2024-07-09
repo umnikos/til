@@ -1,6 +1,6 @@
 -- Copyright umnikos (Alex Stefanov) 2024
 -- Licensed under MIT license
-local version = "0.5"
+local version = "0.6"
 
 local function listLength(list)
   local len = 0
@@ -83,15 +83,26 @@ local function transfer(inv1,inv2,name,nbt,amount)
   local si = 1
   local di = 1
   local transferred = 0
+  local s
+  local d
   while amount > 0 and si <= sl and di <= (dlp+dle) do
-    local s = sources[si]
-    local d
-    if di <= dlp then d = dests_partial[di] else d = dests_empty[di] end
+    if not s then 
+      s = sources[si] 
+    end
+    if not d then
+      if di <= dlp then 
+        d = dests_partial[di] 
+      else 
+        d = dests_empty[di]
+      end
+    end
 
     if not s or s.count <= 0 then
       si = si + 1
+      s = nil
     elseif not d or d.count >= stacksize then
       di = di + 1
+      d = nil
     else
       local to_transfer = math.min(amount, s.count, stacksize-d.count)
       local real_transfer = peripheral.wrap(s.chest).pushItems(d.chest,s.slot,to_transfer,d.slot)
@@ -166,14 +177,22 @@ local function pullItems(inv,chest,from_slot,amount)
   local dle = #dests_empty
   local di = 1
   local transferred = 0
+  local d
   while amount > 0 and si <= sl and di <= (dlp+dle) do
-    local d
-    if di <= dlp then d = dests_partial[di] else d = dests_empty[di] end
+    if not d then
+      if di <= dlp then 
+        d = dests_partial[di] 
+      else 
+        d = dests_empty[di]
+      end
+    end
 
-    if s.count <= 0 then
+    if not s or s.count <= 0 then
       si = si + 1
+      s = nil
     elseif not d or d.count >= stacksize then
       di = di + 1
+      d = nil
     else
       local to_transfer = math.min(amount, s.count, stacksize-d.count)
       local real_transfer = peripheral.wrap(d.chest).pullItems(chest,si,to_transfer,d.slot)
@@ -243,16 +262,24 @@ local function pushItems(inv,chest,from_slot,amount,to_slot)
     di = 1
   end
   local transferred = 0
+  local s
+  local d
   while amount > 0 and si <= sl and di <= dl do
-    local s = sources[si]
-    local d = dests[di]
+    if not s then 
+      s = sources[si] 
+    end
+    if not d then
+      d = dests[di]
+    end
     if not d then
       d = {count=0,name=name,nbt=nbt}
     end
     if not s or s.count <= 0 then
       si = si + 1
+      s = nil
     elseif d.name ~= name or (d.nbt or "") ~= nbt or d.count >= stacksize then
       di = di + 1
+      d = nil
     else
       local to_transfer = math.min(amount, s.count, stacksize-d.count)
       local real_transfer = peripheral.wrap(s.chest).pushItems(chest,s.slot,to_transfer,di)
