@@ -312,7 +312,9 @@ end
 
 
 -- create an inv object out of a list of chests
-local function new(chests)
+local function new(chests, indexer_threads)
+  indexer_threads = math.min(indexer_threads or 32, #chests)
+
   local inv = {}
   -- list of chest names
   inv.chests = chests
@@ -324,37 +326,57 @@ local function new(chests)
   -- cache of stack sizes, name -> number
   inv.stack_sizes = {}
 
-  for _,cname in pairs(chests) do
-    local c = peripheral.wrap(cname)
-    -- 1.12 cc + plethora calls getItemDetail "getItemMeta"
-    if not c.getItemDetail then
-      c.getItemDetail = c.getItemMeta
+  do -- index chests
+    local chestsClone = {}
+    for _,v in ipairs(chests) do
+      chestsClone[#chestsClone+1] = v
     end
 
-    local l = c.list()
-    local size = c.size()
-    for i = 1,size do
-      local item = l[i]
-      if not item then
-        -- empty slot
-        table.insert(inv.empty_slots,{count=0,chest=cname,slot=i})
-      else
-        -- slot with an item
-        local nbt = item.nbt or ""
-        local name = item.name
-        local count = item.count
-        local ident = name..";"..nbt -- identifier
-        inv.items[ident] = inv.items[ident] or {count=0,slots={},slots_nils={}}
-        inv.items[ident].count = inv.items[ident].count + count
-        table.insert(inv.items[ident].slots,{count=count,chest=cname,slot=i})
+    local function indexerThread()
+      while true do
+        if #chestsClone == 0 then return end
+        local cname = chestsClone[#chestsClone]
+        chestsClone[#chestsClone] = nil
 
-        -- inform stack sizes cache if it doesn't know this item
-        -- this is slow but it's only done once per item type
-        if not inv.stack_sizes[name] then
-          inv.stack_sizes[name] = c.getItemDetail(i).maxCount
+        local c = peripheral.wrap(cname)
+        -- 1.12 cc + plethora calls getItemDetail "getItemMeta"
+        if not c.getItemDetail then
+          c.getItemDetail = c.getItemMeta
+        end
+
+        local l = c.list()
+        local size = c.size()
+        for i = 1,size do
+          local item = l[i]
+          if not item then
+            -- empty slot
+            table.insert(inv.empty_slots,{count=0,chest=cname,slot=i})
+          else
+            -- slot with an item
+            local nbt = item.nbt or ""
+            local name = item.name
+            local count = item.count
+            local ident = name..";"..nbt -- identifier
+            inv.items[ident] = inv.items[ident] or {count=0,slots={},slots_nils={}}
+            inv.items[ident].count = inv.items[ident].count + count
+            table.insert(inv.items[ident].slots,{count=count,chest=cname,slot=i})
+
+            -- inform stack sizes cache if it doesn't know this item
+            -- this is slow but it's only done once per item type
+            if not inv.stack_sizes[name] then
+              inv.stack_sizes[name] = c.getItemDetail(i).maxCount
+            end
+          end
         end
       end
     end
+
+    local threads = {}
+    for i=1, indexer_threads do
+      threads[#threads+1] = indexerThread
+    end
+
+    parallel.waitForAll(table.unpack(threads))
   end
 
   -- add methods to the inv
