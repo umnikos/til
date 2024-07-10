@@ -1,6 +1,6 @@
 -- Copyright umnikos (Alex Stefanov) 2024
 -- Licensed under MIT license
-local version = "0.7"
+local version = "0.8"
 
 local function listLength(list)
   local len = 0
@@ -153,11 +153,12 @@ end
 -- transfer from a chest
 -- from_slot is a required argument (might change in the future)
 -- to_slot does not exist as an argument, if passed it'll simply be ignored
-local function pullItems(inv,chest,from_slot,amount)
+-- list_cache is optionally a .list() of the source chest
+local function pullItems(inv,chest,from_slot,amount,_to_slot,list_cache)
   if type(from_slot) ~= "number" then
     error("from_slot is a required argument")
   end
-  local sources = peripheral.wrap(chest).list()
+  local sources = list_cache or peripheral.wrap(chest).list()
   local si = from_slot
   local sl = from_slot
   local s = sources[si]
@@ -229,7 +230,8 @@ end
 -- from_slot is a required argument, and determines the type of item transferred
 -- if from_slot is a number it will transfer the type of item at that entry in inv.list()
 -- if from_slot is a "name;nbt" string then it'll transfer that type of item
-local function pushItems(inv,chest,from_slot,amount,to_slot)
+-- list_cache is optionally a .list() of the destination chest
+local function pushItems(inv,chest,from_slot,amount,to_slot,list_cache)
   local name,nbt
   if type(from_slot) == "number" then
     local l = list(inv)
@@ -253,7 +255,7 @@ local function pushItems(inv,chest,from_slot,amount,to_slot)
   local sources = inv.items[ident].slots
   local sl = #sources
   local si = 1
-  local dests = peripheral.wrap(chest).list()
+  local dests = list_cache or peripheral.wrap(chest).list()
   local dl,di
   if to_slot then
     dl = to_slot
