@@ -1,6 +1,6 @@
 -- Copyright umnikos (Alex Stefanov) 2024
 -- Licensed under MIT license
-local version = "0.9"
+local version = "0.10"
 
 local function listLength(list)
   local len = 0
@@ -93,7 +93,7 @@ local function transfer(inv1,inv2,name,nbt,amount)
       if di <= dlp then 
         d = dests_partial[di]
       else
-        d = dests_empty[di-dlp]
+        d = dests_empty[dle-(di-dlp)+1]
       end
     end
 
@@ -137,7 +137,7 @@ local function transfer(inv1,inv2,name,nbt,amount)
           inv2.items[ident].slots_nils[#inv2.items[ident].slots_nils] = nil
         end
 
-        inv2.empty_slots[di-dlp] = nil
+        inv2.empty_slots[dle-(di-dlp)+1] = nil
         table.insert(inv2.empty_slots_nils, di-dlp)
       end
       inv2.items[ident].count = inv2.items[ident].count + real_transfer
@@ -178,6 +178,11 @@ local function pullItems(inv,chest,from_slot,amount,_to_slot,list_cache)
   local dle = #dests_empty
   local di = 1
 
+  -- skip partials if they're all full
+  if inv.items[ident].count >= stacksize * listLength(inv.items[ident].slots) then
+    di = dlp+1
+  end
+
   local transferred = 0
   local d
   while amount > 0 and si <= sl and di <= (dlp+dle) do
@@ -185,7 +190,7 @@ local function pullItems(inv,chest,from_slot,amount,_to_slot,list_cache)
       if di <= dlp then 
         d = dests_partial[di]
       else
-        d = dests_empty[di-dlp]
+        d = dests_empty[dle-(di-dlp)+1]
       end
     end
 
@@ -213,7 +218,7 @@ local function pullItems(inv,chest,from_slot,amount,_to_slot,list_cache)
           inv.items[ident].slots_nils[#inv.items[ident].slots_nils] = nil
         end
 
-        inv.empty_slots[di-dlp] = nil
+        inv.empty_slots[dle-(di-dlp)+1] = nil
         table.insert(inv.empty_slots_nils, di-dlp)
       end
       inv.items[ident].count = inv.items[ident].count + real_transfer
@@ -274,7 +279,7 @@ local function pushItems(inv,chest,from_slot,amount,to_slot,list_cache)
     if not d then
       d = dests[di]
     end
-    if not d then
+    if not d or not d.name then
       d = {count=0,name=name,nbt=nbt}
     end
     if not s or s.count <= 0 then
@@ -387,8 +392,8 @@ local function new(chests, indexer_threads)
   inv.spaceFor = function(name,nbt) return spaceFor(inv,name,nbt) end
   inv.amountOf = function(name,nbt) return amountOf(inv,name,nbt) end
   inv.transfer = function(inv2,name,nbt,amount) return transfer(inv,inv2,name,nbt,amount) end
-  inv.pushItems = function(chest,from_slot,amount,to_slot) return pushItems(inv,chest,from_slot,amount,to_slot) end
-  inv.pullItems = function(chest,from_slot,amount) return pullItems(inv,chest,from_slot,amount) end
+  inv.pushItems = function(chest,from_slot,amount,to_slot,list_cache) return pushItems(inv,chest,from_slot,amount,to_slot,list_cache) end
+  inv.pullItems = function(chest,from_slot,amount,_to_slot,list_cache) return pullItems(inv,chest,from_slot,amount,_to_slot,list_cache) end
   inv.list = function() return list(inv) end
   return inv
 end
