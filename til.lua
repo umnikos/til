@@ -1,6 +1,6 @@
 -- Copyright umnikos (Alex Stefanov) 2024
 -- Licensed under MIT license
-local version = "0.8"
+local version = "0.9"
 
 local function listLength(list)
   local len = 0
@@ -80,14 +80,14 @@ local function transfer(inv1,inv2,name,nbt,amount)
   local dests_empty = inv2.empty_slots
   local dle = #dests_empty
 
-  local si = 1
+  local si = sl
   local di = 1
   local transferred = 0
   local s
   local d
-  while amount > 0 and si <= sl and di <= (dlp+dle) do
-    if not s then 
-      s = sources[si] 
+  while amount > 0 and si >= 1 and di <= (dlp+dle) do
+    if not s then
+      s = sources[si]
     end
     if not d then
       if di <= dlp then 
@@ -98,7 +98,7 @@ local function transfer(inv1,inv2,name,nbt,amount)
     end
 
     if not s or s.count <= 0 then
-      si = si + 1
+      si = si - 1
       s = nil
     elseif not d or d.count >= stacksize then
       di = di + 1
@@ -254,7 +254,7 @@ local function pushItems(inv,chest,from_slot,amount,to_slot,list_cache)
   local ident = name..";"..nbt
   local sources = inv.items[ident].slots
   local sl = #sources
-  local si = 1
+  local si = sl
   local dests = list_cache or peripheral.wrap(chest).list()
   local dl,di
   if to_slot then
@@ -267,9 +267,9 @@ local function pushItems(inv,chest,from_slot,amount,to_slot,list_cache)
   local transferred = 0
   local s
   local d
-  while amount > 0 and si <= sl and di <= dl do
-    if not s then 
-      s = sources[si] 
+  while amount > 0 and si >= 1 and di <= dl do
+    if not s then
+      s = sources[si]
     end
     if not d then
       d = dests[di]
@@ -278,7 +278,7 @@ local function pushItems(inv,chest,from_slot,amount,to_slot,list_cache)
       d = {count=0,name=name,nbt=nbt}
     end
     if not s or s.count <= 0 then
-      si = si + 1
+      si = si - 1
       s = nil
     elseif d.name ~= name or (d.nbt or "") ~= nbt or d.count >= stacksize then
       di = di + 1
