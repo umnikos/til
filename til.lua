@@ -44,7 +44,7 @@ local function spaceFor(inv,name,nbt)
     return nil
   end
   local ident = name..";"..(nbt or "")
-  local partials = inv.items[ident] or {slots={}, count = 0}
+  local partials = inv.items[ident] or {slots={},count=0}
   local partial_slot_space = (#partials.slots)*stacksize - partials.count
   local empty_slot_space = (#inv.empty_slots)*stacksize
 
@@ -68,21 +68,17 @@ local function transfer(inv1,inv2,name,nbt,amount)
   end
 
   local ident = name..";"..(nbt or "")
-  inv1.items[ident] = inv1.items[ident] or {count=0,slots={}}
-  inv2.items[ident] = inv2.items[ident] or {count=0,slots={}}
+  inv1.items[ident] = inv1.items[ident] or {count=0,slots={},first_partial=1}
+  inv2.items[ident] = inv2.items[ident] or {count=0,slots={},first_partial=1}
   local sources = inv1.items[ident].slots
   local sl = #sources
-  if not inv2.items[ident] then
-    -- new kind of item to accept
-    inv2.items[ident] = {count=0, slots={}}
-  end
   local dests_partial = inv2.items[ident].slots
   local dlp = #dests_partial
   local dests_empty = inv2.empty_slots
   local dle = #dests_empty
 
   local si = sl
-  local di = 1
+  local di = inv2.items[ident].first_partial
   local transferred = 0
   local s
   local d
@@ -116,16 +112,27 @@ local function transfer(inv1,inv2,name,nbt,amount)
       s.count = s.count - real_transfer
       inv1.items[ident].count = inv1.items[ident].count - real_transfer
       if s.count == 0 then
-        -- it's an empty slot now
+        -- source is an empty slot now
         table.insert(inv1.empty_slots,s)
         inv1.items[ident].slots[si] = nil
       end
+      if s.count < stacksize then
+        -- source is not a full slot now
+        inv1.items[ident].first_partial = si
+      end
 
       d.count = d.count + real_transfer
-      if di > dlp and d.count > 0 then
-        -- it's not an empty slot now
-        table.insert(inv2.items[ident].slots,d)
-        inv2.empty_slots[dle-(di-dlp)+1] = nil
+      if di <= dlp then
+        if d.count >= stacksize then
+          -- dest is a full slot now
+          inv2.items[ident].first_partial = di+1
+        end
+      else
+        if d.count > 0 then
+          -- dest is not an empty slot now
+          table.insert(inv2.items[ident].slots,d)
+          inv2.empty_slots[dle-(di-dlp)+1] = nil
+        end
       end
       inv2.items[ident].count = inv2.items[ident].count + real_transfer
 
@@ -220,7 +227,7 @@ local function new(chests, indexer_threads,list_cache,slot_number)
             local name = item.name
             local count = item.count
             local ident = name..";"..nbt -- identifier
-            inv.items[ident] = inv.items[ident] or {count=0,slots={}}
+            inv.items[ident] = inv.items[ident] or {count=0,slots={},first_partial=1}
             inv.items[ident].count = inv.items[ident].count + count
             table.insert(inv.items[ident].slots,{count=count,chest=cname,slot=i})
 
