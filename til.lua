@@ -1,6 +1,6 @@
 -- Copyright umnikos (Alex Stefanov) 2024
 -- Licensed under MIT license
-local version = "0.10"
+local version = "0.11"
 
 local function listLength(list)
   local len = 0
@@ -183,6 +183,12 @@ local function pullItems(inv,chest,from_slot,amount,_to_slot,list_cache)
     di = dlp+1
   end
 
+  -- TODO: put this optimization in transfer() as well.
+  -- skip partials if source is full, there's an empty dest, and amount is a full stack
+  if s.count >= stacksize and #inv.empty_slots > 0 and amount >= stacksize then
+    di = dlp+1
+  end
+
   local transferred = 0
   local d
   while amount > 0 and si <= sl and di <= (dlp+dle) do
@@ -266,7 +272,7 @@ local function pushItems(inv,chest,from_slot,amount,to_slot,list_cache)
     dl = to_slot
     di = to_slot
   else
-    dl = #dests
+    dl = peripheral.wrap(chest).size()
     di = 1
   end
   local transferred = 0
