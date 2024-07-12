@@ -1,14 +1,12 @@
 -- Copyright umnikos (Alex Stefanov) 2024
 -- Licensed under MIT license
-local version = "0.11"
+local version = "0.12"
 
-local function listLength(list)
-  local len = 0
-  for _,_ in pairs(list) do
-    len = len + 1
-  end
-  return len
-end
+-- defined at the end
+local exports
+
+-- cache of stack sizes, name -> number
+local stack_sizes = {}
 
 local function splitIdent(ident)
   local i = string.find(ident,";")
@@ -30,21 +28,25 @@ end
 
 -- inform the storage of the stack size of an item it has not seen yet
 -- DO NOT LIE! (even if it's convenient)
-local function informStackSize(inv,name,stacksize)
-  inv.stack_sizes[name] = stacksize
+local function informStackSize(name,stacksize)
+  stack_sizes[name] = stacksize
+end
+
+local function getStackSize(name)
+  return stack_sizes[name]
 end
 
 -- additional amounts of that item the storage is able to store
 local function spaceFor(inv,name,nbt)
   -- partial slots
-  local stacksize = inv.stack_sizes[name]
+  local stacksize = stack_sizes[name]
   if not stacksize then
     return nil
   end
   local ident = name..";"..(nbt or "")
-  local partials = inv.items[ident] or {slots={},slots_nils={}, count = 0}
-  local partial_slot_space = listLength(partials.slots)*stacksize - partials.count
-  local empty_slot_space = listLength(inv.empty_slots)*stacksize
+  local partials = inv.items[ident] or {slots={}, count = 0}
+  local partial_slot_space = (#partials.slots)*stacksize - partials.count
+  local empty_slot_space = (#inv.empty_slots)*stacksize
 
   return partial_slot_space + empty_slot_space
 end
@@ -60,20 +62,19 @@ end
 
 -- transfer from one storage to another
 local function transfer(inv1,inv2,name,nbt,amount)
-  local stacksize = inv1.stack_sizes[name]
+  local stacksize = stack_sizes[name]
   if not stacksize then
     error("Unknown stack size?!?")
   end
-  inv2.stack_sizes[name] = stacksize
 
   local ident = name..";"..(nbt or "")
-  inv1.items[ident] = inv1.items[ident] or {count=0,slots={},slots_nils={}}
-  inv2.items[ident] = inv2.items[ident] or {count=0,slots={},slots_nils={}}
+  inv1.items[ident] = inv1.items[ident] or {count=0,slots={}}
+  inv2.items[ident] = inv2.items[ident] or {count=0,slots={}}
   local sources = inv1.items[ident].slots
-  local sl = #sources -- intentionally take incorrect length to take into account nils
+  local sl = #sources
   if not inv2.items[ident] then
     -- new kind of item to accept
-    inv2.items[ident] = {count=0, slots={}, slots_nils={}}
+    inv2.items[ident] = {count=0, slots={}}
   end
   local dests_partial = inv2.items[ident].slots
   local dlp = #dests_partial
@@ -116,29 +117,15 @@ local function transfer(inv1,inv2,name,nbt,amount)
       inv1.items[ident].count = inv1.items[ident].count - real_transfer
       if s.count == 0 then
         -- it's an empty slot now
-        if #(inv1.empty_slots_nils) == 0 then
-          table.insert(inv1.empty_slots,s)
-        else
-          inv1.empty_slots[inv1.empty_slots_nils[#inv1.empty_slots_nils]] = s
-          inv1.empty_slots_nils[#inv1.empty_slots_nils] = nil
-        end
-
+        table.insert(inv1.empty_slots,s)
         inv1.items[ident].slots[si] = nil
-        table.insert(inv1.items[ident].slots_nils, si)
       end
 
       d.count = d.count + real_transfer
       if di > dlp and d.count > 0 then
         -- it's not an empty slot now
-        if #(inv2.items[ident].slots_nils) == 0 then
-          table.insert(inv2.items[ident].slots,d)
-        else
-          inv2.items[ident].slots[inv2.items[ident].slots_nils[#inv2.items[ident].slots_nils]] = d
-          inv2.items[ident].slots_nils[#inv2.items[ident].slots_nils] = nil
-        end
-
+        table.insert(inv2.items[ident].slots,d)
         inv2.empty_slots[dle-(di-dlp)+1] = nil
-        table.insert(inv2.empty_slots_nils, di-dlp)
       end
       inv2.items[ident].count = inv2.items[ident].count + real_transfer
 
@@ -158,83 +145,10 @@ local function pullItems(inv,chest,from_slot,amount,_to_slot,list_cache)
   if type(from_slot) ~= "number" then
     error("from_slot is a required argument")
   end
-  local sources = list_cache or peripheral.wrap(chest).list()
-  local si = from_slot
-  local sl = from_slot
-  local s = sources[si]
-  if not s or not s.name or s.count <= 0 then
-    return 0
-  end
-  local ident = s.name..";"..(s.nbt or "")
-  local stacksize = inv.stack_sizes[s.name]
-
-  if not inv.items[ident] then
-    -- new kind of item to accept
-    inv.items[ident] = {count=0, slots={}, slots_nils={}}
-  end
-  local dests_partial = inv.items[ident].slots
-  local dlp = #dests_partial
-  local dests_empty = inv.empty_slots
-  local dle = #dests_empty
-  local di = 1
-
-  -- skip partials if they're all full
-  if inv.items[ident].count >= stacksize * listLength(inv.items[ident].slots) then
-    di = dlp+1
-  end
-
-  -- TODO: put this optimization in transfer() as well.
-  -- skip partials if source is full, there's an empty dest, and amount is a full stack
-  if s.count >= stacksize and #inv.empty_slots > 0 and amount >= stacksize then
-    di = dlp+1
-  end
-
-  local transferred = 0
-  local d
-  while amount > 0 and si <= sl and di <= (dlp+dle) do
-    if not d then
-      if di <= dlp then 
-        d = dests_partial[di]
-      else
-        d = dests_empty[dle-(di-dlp)+1]
-      end
-    end
-
-    if not s or s.count <= 0 then
-      si = si + 1
-      s = nil
-    elseif not d or d.count >= stacksize then
-      di = di + 1
-      d = nil
-    else
-      local to_transfer = math.min(amount, s.count, stacksize-d.count)
-      local real_transfer = peripheral.wrap(d.chest).pullItems(chest,si,to_transfer,d.slot)
-
-      transferred = transferred + real_transfer
-      amount = amount - real_transfer
-      s.count = s.count - real_transfer
-
-      d.count = d.count + real_transfer
-      if di > dlp and d.count > 0 then
-        -- it's not an empty slot now
-        if #(inv.items[ident].slots_nils) == 0 then
-          table.insert(inv.items[ident].slots,d)
-        else
-          inv.items[ident].slots[inv.items[ident].slots_nils[#inv.items[ident].slots_nils]] = d
-          inv.items[ident].slots_nils[#inv.items[ident].slots_nils] = nil
-        end
-
-        inv.empty_slots[dle-(di-dlp)+1] = nil
-        table.insert(inv.empty_slots_nils, di-dlp)
-      end
-      inv.items[ident].count = inv.items[ident].count + real_transfer
-
-      if to_transfer ~= real_transfer then
-        error("Inconsistency detected during ail transfer")
-      end
-    end
-  end
-  return transferred
+  local l = list_cache or peripheral.wrap(chest.list)
+  local s = l[from_slot]
+  local inv2 = exports.new({chest},1,{[chest]=l},from_slot)
+  return inv2.transfer(inv,s.name,s.nbt,amount)
 end
 
 -- transfer to a chest
@@ -245,7 +159,7 @@ end
 local function pushItems(inv,chest,from_slot,amount,to_slot,list_cache)
   local name,nbt
   if type(from_slot) == "number" then
-    local l = list(inv)
+    local l = inv.list()
     if l[from_slot] then
       name = l[from_slot].name
       nbt = l[from_slot].nbt
@@ -257,76 +171,14 @@ local function pushItems(inv,chest,from_slot,amount,to_slot,list_cache)
     error("item name is nil")
   end
   if not nbt then nbt = "" end
-  local stacksize = inv.stack_sizes[name]
-  if not stacksize then
-    error("Unknown stack size?!?")
-  end
-
-  local ident = name..";"..nbt
-  local sources = inv.items[ident].slots
-  local sl = #sources
-  local si = sl
-  local dests = list_cache or peripheral.wrap(chest).list()
-  local dl,di
-  if to_slot then
-    dl = to_slot
-    di = to_slot
-  else
-    dl = peripheral.wrap(chest).size()
-    di = 1
-  end
-  local transferred = 0
-  local s
-  local d
-  while amount > 0 and si >= 1 and di <= dl do
-    if not s then
-      s = sources[si]
-    end
-    if not d then
-      d = dests[di]
-    end
-    if not d or not d.name then
-      d = {count=0,name=name,nbt=nbt}
-    end
-    if not s or s.count <= 0 then
-      si = si - 1
-      s = nil
-    elseif d.name ~= name or (d.nbt or "") ~= nbt or d.count >= stacksize then
-      di = di + 1
-      d = nil
-    else
-      local to_transfer = math.min(amount, s.count, stacksize-d.count)
-      local real_transfer = peripheral.wrap(s.chest).pushItems(chest,s.slot,to_transfer,di)
-
-      transferred = transferred + real_transfer
-      amount = amount - real_transfer
-      s.count = s.count - real_transfer
-      inv.items[ident].count = inv.items[ident].count - real_transfer
-      if s.count == 0 then
-        -- it's an empty slot now
-        if #(inv.empty_slots_nils) == 0 then
-          table.insert(inv.empty_slots,s)
-        else
-          inv.empty_slots[inv.empty_slots_nils[#inv.empty_slots_nils]] = s
-          inv.empty_slots_nils[#inv.empty_slots_nils] = nil
-        end
-
-        inv.items[ident].slots[si] = nil
-        table.insert(inv.items[ident].slots_nils, si)
-      end
-
-      d.count = d.count + real_transfer
-      if to_transfer ~= real_transfer then
-        error("Inconsistency detected during ail transfer")
-      end
-    end
-  end
-  return transferred
+  local inv2 = exports.new({chest},1,{[chest]=list_cache},to_slot)
+  return inv.transfer(inv2,name,nbt,amount)
 end
 
 
 -- create an inv object out of a list of chests
-local function new(chests, indexer_threads)
+local function new(chests, indexer_threads,list_cache,slot_number)
+  if not list_cache then list_cache = {} end
   indexer_threads = math.min(indexer_threads or 32, #chests)
 
   local inv = {}
@@ -336,9 +188,6 @@ local function new(chests, indexer_threads)
   inv.items = {}
   -- list of empty slots
   inv.empty_slots = {}
-  inv.empty_slots_nils = {}
-  -- cache of stack sizes, name -> number
-  inv.stack_sizes = {}
 
   do -- index chests
     local chestsClone = {}
@@ -358,11 +207,11 @@ local function new(chests, indexer_threads)
           c.getItemDetail = c.getItemMeta
         end
 
-        local l = c.list()
-        local size = c.size()
-        for i = 1,size do
+        local l = list_cache[cname] or c.list()
+        local size = slot_number or c.size()
+        for i = (slot_number or 1),size do
           local item = l[i]
-          if not item then
+          if not item or not item.name then
             -- empty slot
             table.insert(inv.empty_slots,{count=0,chest=cname,slot=i})
           else
@@ -371,14 +220,14 @@ local function new(chests, indexer_threads)
             local name = item.name
             local count = item.count
             local ident = name..";"..nbt -- identifier
-            inv.items[ident] = inv.items[ident] or {count=0,slots={},slots_nils={}}
+            inv.items[ident] = inv.items[ident] or {count=0,slots={}}
             inv.items[ident].count = inv.items[ident].count + count
             table.insert(inv.items[ident].slots,{count=count,chest=cname,slot=i})
 
             -- inform stack sizes cache if it doesn't know this item
             -- this is slow but it's only done once per item type
-            if not inv.stack_sizes[name] then
-              inv.stack_sizes[name] = c.getItemDetail(i).maxCount
+            if not stack_sizes[name] then
+              stack_sizes[name] = c.getItemDetail(i).maxCount
             end
           end
         end
@@ -394,7 +243,8 @@ local function new(chests, indexer_threads)
   end
 
   -- add methods to the inv
-  inv.informStackSize = function(name,stacksize) return informStackSize(inv,name,stacksize) end
+  inv.informStackSize = informStackSize
+  inv.getStackSize = getStackSize
   inv.spaceFor = function(name,nbt) return spaceFor(inv,name,nbt) end
   inv.amountOf = function(name,nbt) return amountOf(inv,name,nbt) end
   inv.transfer = function(inv2,name,nbt,amount) return transfer(inv,inv2,name,nbt,amount) end
@@ -407,7 +257,7 @@ end
 
 
 
-local exports = {
+exports = {
   version=version,
   new=new
 }
