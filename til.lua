@@ -1,6 +1,6 @@
 -- Copyright umnikos (Alex Stefanov) 2024
 -- Licensed under MIT license
-local version = "0.12"
+local version = "0.13"
 
 -- defined at the end
 local exports
@@ -183,14 +183,48 @@ local function pushItems(inv,chest,from_slot,amount,to_slot,list_cache)
 end
 
 
+local function addInvMethods(inv)
+  -- add methods to the inv
+  inv.informStackSize = informStackSize
+  inv.getStackSize = getStackSize
+  inv.spaceFor = function(name,nbt) return spaceFor(inv,name,nbt) end
+  inv.amountOf = function(name,nbt) return amountOf(inv,name,nbt) end
+  inv.transfer = function(inv2,name,nbt,amount) return transfer(inv,inv2,name,nbt,amount) end
+  inv.pushItems = function(chest,from_slot,amount,to_slot,list_cache) return pushItems(inv,chest,from_slot,amount,to_slot,list_cache) end
+  inv.pullItems = function(chest,from_slot,amount,_to_slot,list_cache) return pullItems(inv,chest,from_slot,amount,_to_slot,list_cache) end
+  inv.list = function() return list(inv) end
+end
+
+-- combine two storages into one new storage that has the slots of both original storages
+-- this function may behave incorrectly if the two storages share slots with each other
+local function mergeStorages(invs)
+  local inv = {}
+  inv.items = {}
+  inv.empty_slots = {}
+  for _,invn in pairs(invs) do
+    for _,empty_slot in pairs(invn.empty_slots) do
+      table.insert(inv.empty_slots,empty_slot)
+    end
+    for ident,items in pairs(invn.items) do
+      inv.items[ident] = inv.items[ident] or {count=0,slots={},first_partial=1}
+      inv.items[ident].count = inv.items[ident].count + items.count
+      -- we can just ignore first_partial, a further transfer operation will fix it for us
+      for _,slot in pairs(items.slots) do
+        table.insert(inv.items[ident].slots,slot)
+      end
+    end
+  end
+
+  addInvMethods(inv)
+  return inv
+end
+
 -- create an inv object out of a list of chests
 local function new(chests, indexer_threads,list_cache,slot_number)
   if not list_cache then list_cache = {} end
   indexer_threads = math.min(indexer_threads or 32, #chests)
 
   local inv = {}
-  -- list of chest names
-  inv.chests = chests
   -- name;nbt -> total item count + list of slots with counts
   inv.items = {}
   -- list of empty slots
@@ -249,15 +283,7 @@ local function new(chests, indexer_threads,list_cache,slot_number)
     parallel.waitForAll(table.unpack(threads))
   end
 
-  -- add methods to the inv
-  inv.informStackSize = informStackSize
-  inv.getStackSize = getStackSize
-  inv.spaceFor = function(name,nbt) return spaceFor(inv,name,nbt) end
-  inv.amountOf = function(name,nbt) return amountOf(inv,name,nbt) end
-  inv.transfer = function(inv2,name,nbt,amount) return transfer(inv,inv2,name,nbt,amount) end
-  inv.pushItems = function(chest,from_slot,amount,to_slot,list_cache) return pushItems(inv,chest,from_slot,amount,to_slot,list_cache) end
-  inv.pullItems = function(chest,from_slot,amount,_to_slot,list_cache) return pullItems(inv,chest,from_slot,amount,_to_slot,list_cache) end
-  inv.list = function() return list(inv) end
+  addInvMethods(inv)
   return inv
 end
 
@@ -266,7 +292,8 @@ end
 
 exports = {
   version=version,
-  new=new
+  new=new,
+  mergeStorages=mergeStorages
 }
 
 return exports
