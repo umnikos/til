@@ -137,7 +137,7 @@ local function transfer(inv1,inv2,name,nbt,amount)
       inv2.items[ident].count = inv2.items[ident].count + real_transfer
 
       if to_transfer ~= real_transfer then
-        error("Inconsistency detected during ail transfer")
+        error("Inconsistency detected during til transfer")
       end
     end
   end
